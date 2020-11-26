@@ -14,10 +14,8 @@ import (
 )
 
 var (
-	dryRun    = flag.Bool("dryrun", true, "Do not actually kexec into the boot config")
-	debug     = flag.Bool("d", true, "Print debug output")
-	rootfs    = flag.String("r", "", "Root file system name")
-	initramfs = flag.String("i", "", "initramfs name")
+	dryRun    = flag.Bool("dryrun", false, "Do not actually kexec into the boot config")
+	debug     = flag.Bool("d", false, "Print debug output")
 	cmdline = flag.String("c", "earlyprintk=ttyS0,115200,keep console=ttyS0", "command line")
 )
 
@@ -28,16 +26,16 @@ func main() {
 	if *debug {
 		v = log.Printf
 	}
-	if len(flag.Args()) != 2 {
-		log.Fatal("Usage: fitboot uimage kernel")
+	if len(flag.Args()) != 1 {
+		log.Fatal("Usage: fitboot fitimage")
 	}
 	f, err := fit.New(flag.Args()[0])
 	if err != nil {
 		log.Fatal(err)
 	}
-	v("Loaded uimage: %s", f)
-	f.Cmdline, f.KernelName, f.RootFS, f.InitRAMFS = *cmdline, flag.Args()[1], *rootfs, *initramfs
-	if err := f.Load(*debug); err != nil {
+	v("Loaded fitimage: %s", f)
+	f.Cmdline = *cmdline
+	if err := f.LoadFITImage(*debug); err != nil {
 		log.Fatal(err)
 	}
 	if *dryRun {

@@ -161,3 +161,71 @@ func TestWalk(t *testing.T) {
 		t.Fatalf("Checking value of psci/migrate: got %q, want %q", b, v)
 	}
 }
+
+func TestReadImageNodeByName(t *testing.T) {
+	f, err := os.Open("testdata/dummy_image.itb")
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	fdt, err := ReadFDT(f)
+	f.Close()
+
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	kn, err := fdt.ReadImageNodeByName("kernel@0")
+	if err != nil {
+		t.Fatalf("Unable to find kernel in the image: %v", err)
+	}
+
+	t.Logf("Got the node: %v", kn)
+	t.Logf("Load address: %#010x", kn.LoadAddress)
+	t.Logf("Entry address: %#010x", kn.EntryAddress)
+	t.Logf("Data size: %v bytes", len(*kn.Data))
+
+	rn, err := fdt.ReadImageNodeByName("ramdisk@0")
+	if err != nil {
+		t.Fatalf("Unable to find ramdisk in the image: %v", err)
+	}
+
+	t.Logf("Got the node: %v", rn)
+	t.Logf("Load address: %#010x", rn.LoadAddress)
+	t.Logf("Entry address: %#010x", rn.EntryAddress)
+	t.Logf("Data size: %v bytes", len(*rn.Data))
+}
+
+func TestFITImage(t *testing.T) {
+	f, err := os.Open("testdata/dummy_image.itb")
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	fdt, err := ReadFDT(f)
+	f.Close()
+
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	fitimage, err := fdt.ReadFITImage()
+
+	if err != nil {
+		t.Fatalf("Unable to find kernel in the image: %v", err)
+	}
+
+	t.Logf("Got the node: %v", fitimage.Kernel)
+	t.Logf("Load address: %#010x", fitimage.Kernel.LoadAddress)
+	t.Logf("Entry address: %#010x", fitimage.Kernel.EntryAddress)
+	t.Logf("Data size: %v bytes", len(*fitimage.Kernel.Data))
+
+	if fitimage.Ramdisk == nil {
+		t.Fatalf("Unable to find ramdisk in the image: %v", err)
+	}
+
+	t.Logf("Got the node: %v", fitimage.Ramdisk)
+	t.Logf("Load address: %#010x", fitimage.Ramdisk.LoadAddress)
+	t.Logf("Entry address: %#010x", fitimage.Ramdisk.EntryAddress)
+	t.Logf("Data size: %v bytes", len(*fitimage.Ramdisk.Data))
+}

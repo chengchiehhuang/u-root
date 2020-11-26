@@ -66,11 +66,11 @@ func (i *Image) Load(verbose bool) error {
 	if verbose {
 		log.Printf("Find kernel %s", i.KernelName)
 	}
-	kb, err := i.Root.Bytes(i.KernelName, "data")
+	ki, err := i.Root.ReadImageNodeByName(i.KernelName)
 	if err != nil {
 		return err
 	}
-	i.mem.Segments.Insert(kexec.NewSegment(kb, kexec.Range{Start: 0x100000, Size: uint(len(kb))}))
+	i.mem.Segments.Insert(kexec.NewSegment(*ki.Data, kexec.Range{Start: ki.LoadAddress, Size: uint(len(*ki.Data))}))
 	// Technically, we can have both an initramfs and a rootfs.
 	// The current question: how do we provided the rootfs from a file
 	// to the kernel? We do not know.
@@ -82,13 +82,51 @@ func (i *Image) Load(verbose bool) error {
 		if verbose {
 			log.Printf("Find initramfs %s", i.InitRAMFS)
 		}
-		ib, err := i.Root.Bytes(i.InitRAMFS, "data")
+		ii, err := i.Root.ReadImageNodeByName(i.InitRAMFS)
 		if err != nil {
 			return err
 		}
-		i.mem.Segments.Insert(kexec.NewSegment(kb, kexec.Range{Start: 32 * 0x100000, Size: uint(len(ib))}))
+		i.mem.Segments.Insert(kexec.NewSegment(*ii.Data, kexec.Range{Start: ii.LoadAddress, Size: uint(len(*ii.Data))}))
 	}
-	i.entryPoint = 0x100000
+
+	i.entryPoint = ki.EntryAddress
+
+	if verbose {
+		log.Printf("segments cmdline %v %q", i.mem.Segments, i.Cmdline)
+	}
+
+	if err := kexec.Load(i.entryPoint, i.mem.Segments, 0); err != nil {
+		return fmt.Errorf("kexec.Load() error: %v", err)
+	}
+
+	return nil
+}
+
+// Load loads a FIT Image.
+func (i *Image) LoadFITImage(verbose bool) error {
+	// Find the kernel name and its needed data area.
+	if verbose {
+		log.Printf("Find kernel %s", i.KernelName)
+	}
+	fi, err := i.Root.ReadFITImage()
+	if err != nil {
+		return err
+	}
+	i.mem.Segments.Insert(kexec.NewSegment(*fi.Kernel.Data, kexec.Range{Start: fi.Kernel.LoadAddress, Size: uint(len(*fi.Kernel.Data))}))
+
+	// RootFS is not supported yet....
+	if len(i.RootFS) > 0 {
+		return fmt.Errorf("No way to provide a rootfs yet")
+	}
+
+	if fi.Ramdisk != nil {
+		if verbose {
+			log.Printf("Found initramfs")
+		}
+		i.mem.Segments.Insert(kexec.NewSegment(*fi.Ramdisk.Data, kexec.Range{Start: fi.Ramdisk.LoadAddress, Size: uint(len(*fi.Ramdisk.Data))}))
+	}
+
+	i.entryPoint = fi.Kernel.EntryAddress
 
 	if verbose {
 		log.Printf("segments cmdline %v %q", i.mem.Segments, i.Cmdline)

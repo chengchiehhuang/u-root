@@ -71,6 +71,20 @@ type ReserveEntry struct {
 	Size    uint64
 }
 
+// uImage info
+type ImageInfo struct {
+	LoadAddress  uintptr
+	EntryAddress uintptr
+	Data         *[]byte
+}
+
+// FIT image info
+type FITImageInfo struct {
+	Kernel  *ImageInfo
+	Ramdisk *ImageInfo
+}
+
+
 // ReadFDT reads FDT from an io.ReadSeeker.
 func ReadFDT(f io.ReadSeeker) (*FDT, error) {
 	fdt := &FDT{}
@@ -417,4 +431,85 @@ func (fdt *FDT) NodeByName(name string) (*Node, bool) {
 	return fdt.RootNode.Find(func(n *Node) bool {
 		return n.Name == name
 	})
+}
+
+// ReadImageNode returns ImageInfo (Load, Entry, Data) for a given node
+func ReadImageNode(n *Node) (*ImageInfo, error) {
+
+	load_p, ok := n.LookProperty("load")
+	if !ok {
+		return nil, fmt.Errorf("Finding load property in %s: got false, want true", n)
+	}
+	load_v, err := load_p.AsType(U32Type)
+	if err != nil {
+		return nil, fmt.Errorf("Unable to convert load property to int32")
+	}
+	var entry_v interface{}
+	if entry_p, ok := n.LookProperty("entry"); ok {
+		entry_v, err = entry_p.AsType(U32Type)
+		if err != nil {
+			return nil, err
+		}
+	}
+	if entry_v == nil {
+		entry_v = uint32(0)
+	}
+	data_p, ok := n.LookProperty("data")
+	if !ok {
+		return nil, fmt.Errorf("Finding data in %s: got false, want true", n)
+	}
+
+	return &ImageInfo{uintptr(load_v.(uint32)), uintptr(entry_v.(uint32)), &data_p.Value}, nil
+}
+
+// ReadImageNodeByName retrive given node name and assume it is an FIT image format
+func (fdt *FDT) ReadImageNodeByName(name string) (*ImageInfo, error) {
+	n, ok := fdt.NodeByName(name)
+	if !ok {
+		return nil, fmt.Errorf("Finding kernel in %s: got false, want true", fdt)
+	}
+	return ReadImageNode(n)
+}
+
+// ReadFITImage assume a FIT image and retrive kernel and ramdisk
+func (fdt *FDT) ReadFITImage() (*FITImageInfo, error) {
+	info := FITImageInfo{}
+
+	kn, ok := fdt.RootNode.Find(func(n *Node) bool {
+		if p, ok := n.LookProperty("type"); ok {
+			if v, err := p.AsType(StringType); err == nil && v == "kernel" {
+				return true
+			}
+		}
+		return false
+	})
+
+	if !ok {
+		return nil, fmt.Errorf("Finding kernel in %s: got false, want true", fdt)
+	}
+
+	ki, err := ReadImageNode(kn)
+	if err != nil {
+		return nil, err
+	}
+
+	info.Kernel = ki
+
+	rn, ok := fdt.RootNode.Find(func(n *Node) bool {
+		if p, ok := n.LookProperty("type"); ok {
+			if v, err := p.AsType(StringType); err == nil && v == "ramdisk" {
+				return true
+			}
+		}
+		return false
+	})
+
+	if ok {
+		if ri, err := ReadImageNode(rn); err == nil {
+			info.Ramdisk = ri
+		}
+	}
+
+	return &info, nil
+
 }
