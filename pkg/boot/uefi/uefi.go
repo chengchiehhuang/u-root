@@ -18,6 +18,8 @@ import (
 	"github.com/u-root/u-root/pkg/boot/kexec"
 )
 
+// TODO(chengchieh): Add integration test for uefi package.
+
 const fvEntryImageOffset int64 = 0xA0
 
 var bootExecute = boot.Execute
@@ -25,13 +27,68 @@ var kexecLoad = kexec.Load
 var kexecParseMemoryMap = kexec.ParseMemoryMap
 var getRSDP = acpi.GetRSDP
 
+// Memory type in Linuxboot.h
+// TODO(chengchieh): Merge them with pkg/boot/kexec/memory_linux.go
+const (
+	MemTypeRAM      = 1
+	MemTypeDefault  = 2
+	MemTypeAcpi     = 3
+	MemTypeNVS      = 4
+	MemTypeReserved = 5
+)
+
+type memoryMapEntry struct {
+	Start   uint64
+	End     uint64
+	MemType uint32
+}
+
+var rangeTypeToPayloadMemType = map[kexec.RangeType]uint32{
+	kexec.RangeRAM:      MemTypeRAM,
+	kexec.RangeDefault:  MemTypeDefault,
+	kexec.RangeACPI:     MemTypeAcpi,
+	kexec.RangeNVS:      MemTypeNVS,
+	kexec.RangeReserved: MemTypeReserved,
+}
+
+// Serial port setting in Linuxboot.h
+const (
+	SerialPortTypeIO   = 1
+	SerialPortTypeMMIO = 2
+)
+
+type SerialPortConfig struct {
+	Type        uint32
+	BaseAddr    uint32
+	Baud        uint32
+	RegWidth    uint32
+	InputHertz  uint32
+	UartPciAddr uint32
+}
+
+type payloadConfig struct {
+	AcpiBase            uint64
+	AcpiSize            uint64
+	SerialConfig        SerialPortConfig
+	NumMemoryMapEntries uint32
+}
+
+func convertToPayloadMemType(rt kexec.RangeType) uint32 {
+	mt, ok := rangeTypeToPayloadMemType[rt]
+	if !ok {
+		// return reserved if range type is not recognized
+		return MemTypeReserved
+	}
+	return mt
+}
+
 // FvImage is a structure for loading a firmware volume
 type FvImage struct {
 	name         string
 	mem          kexec.Memory
 	entryAddress uintptr
 	ImageBase    uintptr
-	PciExBase    uint64
+	SerialConfig SerialPortConfig
 }
 
 // PEImage is a structure for loading entry PE image from a firmware volume
@@ -67,46 +124,8 @@ func New(n string) (*FvImage, error) {
 	return &FvImage{name: n, mem: kexec.Memory{}, entryAddress: entry}, nil
 }
 
-// Memory type in Linuxboot.h
-const (
-	MemTypeRAM      = 1
-	MemTypeDefault  = 2
-	MemTypeAcpi     = 3
-	MemTypeNVS      = 4
-	MemTypeReserved = 5
-)
-
-type payloadConfig struct {
-	AcpiBase            uint64
-	AcpiSize            uint64
-	NumMemoryMapEntries uint32
-}
-
-type memoryMapEntry struct {
-	Start   uint64
-	End     uint64
-	MemType uint32
-}
-
-var rangeTypeToPayloadMemType = map[kexec.RangeType]uint32{
-	kexec.RangeRAM:      MemTypeRAM,
-	kexec.RangeDefault:  MemTypeDefault,
-	kexec.RangeACPI:     MemTypeAcpi,
-	kexec.RangeNVS:      MemTypeNVS,
-	kexec.RangeReserved: MemTypeReserved,
-}
-
-func convertToPayloadMemType(rt kexec.RangeType) uint32 {
-	mt, ok := rangeTypeToPayloadMemType[rt]
-	if !ok {
-		// return reserved if range type is not recognized
-		return MemTypeReserved
-	}
-	return mt
-}
-
 // Reserved 64kb for passing params
-var uefiPayloadConfigSize int = 0x10000
+const uefiPayloadConfigSize = 0x10000
 
 // Load loads fimware volume payload and boot the the payload
 func (fv *FvImage) Load(verbose bool) error {
@@ -136,6 +155,7 @@ func (fv *FvImage) Load(verbose bool) error {
 	pc := payloadConfig{
 		AcpiBase:            uint64(rsdp.RSDPAddr()),
 		AcpiSize:            uint64(rsdp.Len()),
+		SerialConfig:        fv.SerialConfig,
 		NumMemoryMapEntries: uint32(len(mm)),
 	}
 
