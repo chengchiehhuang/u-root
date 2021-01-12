@@ -667,3 +667,51 @@ func (m *MemoryMap) Insert(r TypedRange) {
 	newMap.sort()
 	*m = newMap
 }
+
+// Memory type (uint32) in UefiPayload
+const (
+	PayloadTypeRAM      = 1
+	PayloadTypeDefault  = 2
+	PayloadTypeAcpi     = 3
+	PayloadTypeNVS      = 4
+	PayloadTypeReserved = 5
+)
+
+// Payload's memory map entry
+type PayloadMemoryMapEntry struct {
+	Start uint64
+	End   uint64
+	Type  uint32
+}
+
+// Payload's MemoryMap Parameter
+type PayloadMemoryMapParam []PayloadMemoryMapEntry
+
+var rangeTypeToPayloadMemType = map[RangeType]uint32{
+	RangeRAM:      PayloadTypeRAM,
+	RangeDefault:  PayloadTypeDefault,
+	RangeACPI:     PayloadTypeAcpi,
+	RangeNVS:      PayloadTypeNVS,
+	RangeReserved: PayloadTypeReserved,
+}
+
+func convertToPayloadMemType(rt RangeType) uint32 {
+	mt, ok := rangeTypeToPayloadMemType[rt]
+	if !ok {
+		// return reserved if range type is not recognized
+		return PayloadTypeReserved
+	}
+	return mt
+}
+
+func (mm *MemoryMap) AsPayloadParam() PayloadMemoryMapParam {
+	var p PayloadMemoryMapParam
+	for _, entry := range *mm {
+		p = append(p, PayloadMemoryMapEntry{
+			Start: uint64(entry.Start),
+			End:   uint64(entry.Start) + uint64(entry.Size) - 1,
+			Type:  convertToPayloadMemType(entry.Type),
+		})
+	}
+	return p
+}

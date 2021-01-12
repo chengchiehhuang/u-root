@@ -25,30 +25,6 @@ var kexecLoad = kexec.Load
 var kexecParseMemoryMap = kexec.ParseMemoryMap
 var getRSDP = acpi.GetRSDP
 
-// Memory type in Linuxboot.h
-// TODO(chengchieh): Merge them with pkg/boot/kexec/memory_linux.go
-const (
-	MemTypeRAM      = 1
-	MemTypeDefault  = 2
-	MemTypeAcpi     = 3
-	MemTypeNVS      = 4
-	MemTypeReserved = 5
-)
-
-type memoryMapEntry struct {
-	Start   uint64
-	End     uint64
-	MemType uint32
-}
-
-var rangeTypeToPayloadMemType = map[kexec.RangeType]uint32{
-	kexec.RangeRAM:      MemTypeRAM,
-	kexec.RangeDefault:  MemTypeDefault,
-	kexec.RangeACPI:     MemTypeAcpi,
-	kexec.RangeNVS:      MemTypeNVS,
-	kexec.RangeReserved: MemTypeReserved,
-}
-
 // Serial port setting in Linuxboot.h
 const (
 	SerialPortTypeIO   = 1
@@ -69,15 +45,6 @@ type payloadConfig struct {
 	AcpiSize            uint64
 	SerialConfig        SerialPortConfig
 	NumMemoryMapEntries uint32
-}
-
-func convertToPayloadMemType(rt kexec.RangeType) uint32 {
-	mt, ok := rangeTypeToPayloadMemType[rt]
-	if !ok {
-		// return reserved if range type is not recognized
-		return MemTypeReserved
-	}
-	return mt
 }
 
 // FvImage is a structure for loading a firmware volume
@@ -162,17 +129,7 @@ func (fv *FvImage) Load(verbose bool) error {
 		return err
 	}
 
-	// Convert MemoryMap to UefiPayload style
-	var mmPayload []memoryMapEntry
-	for _, entry := range mm {
-		mmPayload = append(mmPayload, memoryMapEntry{
-			Start:   uint64(entry.Start),
-			End:     uint64(entry.Start) + uint64(entry.Size) - 1,
-			MemType: convertToPayloadMemType(entry.Type),
-		})
-	}
-
-	if err := binary.Write(pcbuf, binary.LittleEndian, mmPayload); err != nil {
+	if err := binary.Write(pcbuf, binary.LittleEndian, mm.AsPayloadParam()); err != nil {
 		return err
 	}
 
