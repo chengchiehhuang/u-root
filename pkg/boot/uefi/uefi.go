@@ -16,6 +16,7 @@ import (
 	"github.com/u-root/u-root/pkg/acpi"
 	"github.com/u-root/u-root/pkg/boot"
 	"github.com/u-root/u-root/pkg/boot/kexec"
+	"github.com/u-root/u-root/pkg/smbios"
 )
 
 const fvEntryImageOffset int64 = 0xA0
@@ -24,6 +25,17 @@ var bootExecute = boot.Execute
 var kexecLoad = kexec.Load
 var kexecParseMemoryMap = kexec.ParseMemoryMap
 var getRSDP = acpi.GetRSDP
+
+func getSMBIOSBase() (int64, int64, error) {
+	base, size, err := smbios.GetSMBIOSBaseEFI()
+	if err != nil {
+		base, size, err = smbios.GetSMBIOSBaseLegacy()
+		if err != nil {
+			return 0, 0, err
+		}
+	}
+	return base, size, nil
+}
 
 // Serial port setting in Linuxboot.h
 const (
@@ -43,6 +55,8 @@ type SerialPortConfig struct {
 type payloadConfig struct {
 	AcpiBase            uint64
 	AcpiSize            uint64
+	SmbiosBase          uint64
+	SmbiosSize          uint64
 	SerialConfig        SerialPortConfig
 	NumMemoryMapEntries uint32
 }
@@ -117,9 +131,16 @@ func (fv *FvImage) Load(verbose bool) error {
 		return err
 	}
 
+	smbiosBase, smbiosSize, err := getSMBIOSBase()
+	if err != nil {
+		return err
+	}
+
 	pc := payloadConfig{
 		AcpiBase:            uint64(rsdp.RSDPAddr()),
 		AcpiSize:            uint64(rsdp.Len()),
+		SmbiosBase:          uint64(smbiosBase),
+		SmbiosSize:          uint64(smbiosSize),
 		SerialConfig:        fv.SerialConfig,
 		NumMemoryMapEntries: uint32(len(mm)),
 	}
